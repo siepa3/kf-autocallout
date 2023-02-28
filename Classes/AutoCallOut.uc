@@ -10,9 +10,9 @@ Class AutoCallOut extends Mutator config(AutoCallOut_Config);
 #exec OBJ LOAD FILE=ACO_SNDS.uax
 
 // Config Vars
-var config bool bDebug, bPlaySoundFP, bPlaySoundSC;
-var config string sWarningMSG, sFleshSND, sScrakeSND;
-var config float fDelay, fDelayFP, fDelaySC;
+var config bool bDebug, bPlaySoundFP, bPlaySoundSC, bPlaySoundBR;
+var config string sWarningMSG, sFleshSND, sScrakeSND, sBruteSND;
+var config float fDelay, fDelayFP, fDelaySC, fDelayBR;
 
 // Colors from Config
 struct ColorRecord
@@ -25,9 +25,9 @@ var config array<ColorRecord> ColorList; // Color list
 
 // Mut Vars
 var KFGameType KFGT;
-var bool bPlayFP, bPlaySC, bResetTmpVarFP, bResetTmpVarSC;
-var int iFP, iSC, tmpFP, tmpSC;
-var float fLastPlayedAtFP, fLastPlayedAtSC;
+var bool bPlayFP, bPlaySC, bPlayBR, bResetTmpVarFP, bResetTmpVarSC, bResetTmpVarBR;
+var int iFP, iSC, iBR, tmpFP, tmpSC, tmpBR;
+var float fLastPlayedAtFP, fLastPlayedAtSC, fLastPlayedAtBR;
 
 function PostBeginPlay()
 {
@@ -42,9 +42,11 @@ function PostBeginPlay()
     MutLog("-----|| Debug - MSG: " $sWarningMSG$ " ||-----");
     MutLog("-----|| Debug - FP Sound: " $sFleshSND$ " ||-----");
     MutLog("-----|| Debug - SC Sound: " $sScrakeSND$ " ||-----");
+    MutLog("-----|| Debug - BR Sound: " $sBruteSND$ " ||-----");
     MutLog("-----|| Debug - Delay: " $fDelay$ " ||-----");
     MutLog("-----|| Debug - Flesh Pound Sound Delay: " $fDelayFP$ " ||-----");
     MutLog("-----|| Debug - Scrake Sound Delay: " $fDelaySC$ " ||-----");
+    MutLog("-----|| Debug - Brute Sound Delay: " $fDelayBR$ " ||-----");
   }
 
   SetTimer(fDelay, true);
@@ -57,6 +59,7 @@ function tick(float Deltatime)
     // Always gather count of FPs & SCs
     iFP = CheckFleshPoundCount();
     iSC = CheckScrakeCount();
+    iBR = CheckBruteCount();
 
     // Play FP Sound
     if (bPlaySoundFP && bPlayFP && (fLastPlayedAtFP < Level.TimeSeconds))
@@ -89,6 +92,22 @@ function tick(float Deltatime)
         tmpSC = iSC;
       }
     }
+
+    // Play BR Sound
+    if (bPlaySoundBR && bPlayBR && (fLastPlayedAtBR < Level.TimeSeconds))
+    {
+      if (tmpBR < iBR)
+      {
+        bResetTmpVarBR = true;
+        tmpBR = iBR;
+        PlaySoundBR(sBruteSND);
+      }
+      else if(tmpBR > iBR)
+      {
+        bResetTmpVarBR = true;
+        tmpBR = iBR;
+      }
+    }
   }
   else
   {
@@ -102,6 +121,11 @@ function tick(float Deltatime)
       bResetTmpVarSC = false;
       tmpSC = 0;
     }
+    if(bResetTmpVarBR)
+    {
+      bResetTmpVarBR = false;
+      tmpBR = 0;
+    }
   }
 }
 
@@ -112,20 +136,22 @@ function Timer()
 
 function CallOut()
 {
-  local string tmpMSG, sFP, sSC;
+  local string tmpMSG, sFP, sSC, sBR;
 
   sFP = string(iFP);
   sSC = string(iSC);
+  sBR = string(iBR);
   tmpMSG = sWarningMSG;
 
   ReplaceText(tmpMSG, "%FP", sFP);
   ReplaceText(tmpMSG, "%SC", sSC);
+  ReplaceText(tmpMSG, "%BR", sBR);
 
-  if (iFP != 0 || iSC != 0) BroadcastMSG(tmpMSG);
+  if (iFP != 0 || iSC != 0 || iBR != 0) BroadcastMSG(tmpMSG);
 
   if(bDebug)
   {
-    MutLog("-----|| Debug - FP Count: " $iFP$ "x | SC Count: " $iSC$ "x ||-----");
+    MutLog("-----|| Debug - FP Count: " $iFP$ "x | SC Count: " $iSC$ "x | BR Count: " $iBR$ "x ||-----");
     MutLog("-----|| Debug - WarningMSG: " $tmpMSG$ " ||-----");
   }
 }
@@ -158,6 +184,20 @@ function int CheckScrakeCount()
   return j;
 }
 
+function int CheckBruteCount()
+{
+  local KFMonster Monster;
+  local int j;
+
+  foreach DynamicActors(class'KFMonster', Monster)
+  {
+    if (Monster.isA('ZombieBrute')) j++;
+  }
+  if (j >= 1) bPlayBR = true;
+  else bPlayBR = false;
+  return j;
+}
+
 function PlaySoundFP(string Sound)
 {
   local Controller C;
@@ -186,6 +226,22 @@ function PlaySoundSC(string Sound)
     {
       PlayerController(C).ClientPlaySound(SoundEffect, true, 20);
       fLastPlayedAtSC = Level.TimeSeconds + fDelaySC;
+    }
+  }
+}
+
+function PlaySoundBR(string Sound)
+{
+  local Controller C;
+  local sound SoundEffect;
+
+  SoundEffect = sound(DynamicLoadObject(Sound, class'Sound'));
+  for( C = Level.ControllerList; C != None; C = C.nextController )
+  {
+    if( C.IsA('PlayerController') && PlayerController(C).PlayerReplicationInfo.PlayerID != 0)
+    {
+      PlayerController(C).ClientPlaySound(SoundEffect, true, 20);
+      fLastPlayedAtBR = Level.TimeSeconds + fDelayBR;
     }
   }
 }
@@ -266,11 +322,9 @@ function string RemoveColor(string S)
 }
 //////////////////////////////////////////////////////////////////////
 
-
 defaultproperties
 {
-  // Mut Vars
-  GroupName="KF-AutoCallOut"
-  FriendlyName="FP & SC Auto Call Out - v1.3.4"
-  Description="Prints count of SC & FP Globally, and plays Spawn sound effects like KF2 [Whitelisted]; By Vel-San"
+     GroupName="KF-AutoCallOut"
+     FriendlyName="FP/SC/BR Auto Call Out - v1.3.4"
+     Description="Prints count of SC/FP/BR globally, and plays Spawn sound effects like KF2 [Whitelisted]; By Vel-San"
 }
